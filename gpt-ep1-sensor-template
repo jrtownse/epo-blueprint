@@ -1,0 +1,52 @@
+blueprint:
+  name: "Everything Presence One Binary Sensor"
+  description: |
+    Create a binary (occupancy) sensor in Home Assistant based on states of your Everything Presence One sensor entity.
+  domain: binary_sensor
+
+  input:
+    presence_entity:
+      name: "Presence One Sensor Entity"
+      description: "Select the sensor entity that reports presence from Everything Presence One."
+      selector:
+        entity:
+          domain: sensor
+          integration: everything_presence_one
+
+    present_state:
+      name: "Present State Value"
+      description: "The state string that indicates presence (e.g., 'present', 'home')."
+      default: "present"
+      selector:
+        text: {}
+
+    absent_state:
+      name: "Absent State Value"
+      description: "The state string that indicates absence (e.g., 'away', 'not_present')."
+      default: "away"
+      selector:
+        text: {}
+
+    sensor_name:
+      name: "Binary Sensor Friendly Name"
+      description: "Friendly name for the new binary sensor."
+      default: "Everything Presence One"
+      selector:
+        text: {}
+
+    unique_id:
+      name: "Unique ID"
+      description: "A unique identifier for the new binary sensor."
+      selector:
+        text: {}
+
+binary_sensor:
+  - name: "{{ sensor_name }}"
+    unique_id: "{{ unique_id }}"
+    device_class: occupancy
+    state: >-
+      {{ is_state(presence_entity, present_state) }}
+    # Optional: use `off` state when absent_state matches
+    # If your sensor uses a different absent state, adjust accordingly
+    availability: >-
+      {{ not is_state(presence_entity, absent_state) }}
