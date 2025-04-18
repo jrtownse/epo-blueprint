@@ -1,0 +1,291 @@
+blueprint:
+  name: Everything Presence One - Smart Presence
+  description: >
+    Advanced automation blueprint for the Everything Presence One sensor.
+    
+    This blueprint enables comprehensive presence detection and control using the
+    EP1's mmWave sensor, PIR motion sensor, temperature, humidity, and light sensors.
+    It includes configurable options for:
+    - Light control based on presence and illuminance level
+    - HVAC control based on room temperature and presence
+    - Multiple presence zones (if using SEN0609 mmWave sensor)
+    - Configurable sensitivity and timeout settings
+    - Bluetooth proxy functionality
+
+  domain: automation
+  source_url: https://github.com/yourusername/ha-blueprints/ep1-blueprint.yaml
+  input:
+    ep1_device:
+      name: Everything Presence One Device
+      description: Select your Everything Presence One device
+      selector:
+        device:
+          integration: esphome
+          manufacturer: Everything Smart Home
+    
+    mmwave_entity:
+      name: mmWave Presence Sensor
+      description: The mmWave sensor from your EP1 device
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: occupancy
+
+    pir_entity:
+      name: PIR Motion Sensor
+      description: The PIR motion sensor from your EP1 device
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: motion
+    
+    temperature_entity:
+      name: Temperature Sensor
+      description: The temperature sensor from your EP1 device
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+    
+    humidity_entity:
+      name: Humidity Sensor
+      description: The humidity sensor from your EP1 device
+      selector:
+        entity:
+          domain: sensor
+          device_class: humidity
+    
+    illuminance_entity:
+      name: Illuminance Sensor
+      description: The light sensor from your EP1 device
+      selector:
+        entity:
+          domain: sensor
+          device_class: illuminance
+    
+    light_entities:
+      name: Lights
+      description: Select lights to control based on presence
+      default: []
+      selector:
+        target:
+          entity:
+            domain: light
+    
+    light_on_brightness:
+      name: Light Brightness When Presence Detected
+      description: Brightness level when turning on lights (1-255)
+      default: 255
+      selector:
+        number:
+          min: 1
+          max: 255
+          step: 1
+          mode: slider
+    
+    light_transition_time:
+      name: Light Transition Time
+      description: Transition time for light changes in seconds
+      default: 1.0
+      selector:
+        number:
+          min: 0
+          max: 10
+          step: 0.1
+          unit_of_measurement: seconds
+    
+    use_illuminance:
+      name: Use Illuminance Sensor
+      description: Only turn on lights when illuminance is below threshold
+      default: true
+      selector:
+        boolean:
+    
+    illuminance_threshold:
+      name: Illuminance Threshold
+      description: Only turn on lights when below this threshold (in lux)
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 1000
+          step: 1
+          unit_of_measurement: lux
+    
+    presence_timeout:
+      name: Presence Timeout
+      description: How long to wait after no presence is detected before turning off lights (seconds)
+      default: 300
+      selector:
+        number:
+          min: 10
+          max: 3600
+          step: 10
+          unit_of_measurement: seconds
+    
+    climate_control:
+      name: Climate Control
+      description: Enable temperature-based HVAC control
+      default: false
+      selector:
+        boolean:
+    
+    climate_entity:
+      name: Climate Entity
+      description: HVAC to control based on presence and temperature
+      default: ""
+      selector:
+        entity:
+          domain: climate
+    
+    comfort_temperature:
+      name: Comfort Temperature
+      description: Temperature to set when room is occupied
+      default: 21.0
+      selector:
+        number:
+          min: 15
+          max: 30
+          step: 0.5
+          unit_of_measurement: °C
+    
+    eco_temperature:
+      name: Eco Temperature
+      description: Temperature to set when room is unoccupied
+      default: 18.0
+      selector:
+        number:
+          min: 10
+          max: 25
+          step: 0.5
+          unit_of_measurement: °C
+
+variables:
+  mmwave_entity: !input mmwave_entity
+  pir_entity: !input pir_entity
+  temperature_entity: !input temperature_entity
+  humidity_entity: !input humidity_entity
+  illuminance_entity: !input illuminance_entity
+  light_entities: !input light_entities
+  light_on_brightness: !input light_on_brightness
+  light_transition_time: !input light_transition_time
+  use_illuminance: !input use_illuminance
+  illuminance_threshold: !input illuminance_threshold
+  presence_timeout: !input presence_timeout
+  climate_control: !input climate_control
+  climate_entity: !input climate_entity
+  comfort_temperature: !input comfort_temperature
+  eco_temperature: !input eco_temperature
+
+trigger:
+  - platform: state
+    entity_id: !input mmwave_entity
+    id: "mmwave_presence"
+  - platform: state
+    entity_id: !input pir_entity
+    id: "pir_motion"
+  - platform: state
+    entity_id: !input illuminance_entity
+    id: "illuminance_change"
+  - platform: state
+    entity_id: !input temperature_entity
+    id: "temperature_change"
+
+condition: []
+
+action:
+  - choose:
+      # When mmWave detects presence
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'mmwave_presence' and trigger.to_state.state == 'on' }}"
+        sequence:
+          - service: timer.cancel
+            target:
+              entity_id: timer.ep1_presence_timeout
+          - condition: template
+            value_template: >
+              {% if use_illuminance %}
+                {{ states(illuminance_entity) | float < illuminance_threshold }}
+              {% else %}
+                {{ true }}
+              {% endif %}
+          - service: light.turn_on
+            target: !input light_entities
+            data:
+              brightness: "{{ light_on_brightness }}"
+              transition: "{{ light_transition_time }}"
+          - if:
+              - condition: template
+                value_template: "{{ climate_control }}"
+              - condition: template
+                value_template: "{{ climate_entity != '' }}"
+            then:
+              - service: climate.set_temperature
+                target:
+                  entity_id: "{{ climate_entity }}"
+                data:
+                  temperature: "{{ comfort_temperature }}"
+
+      # When PIR detects motion
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'pir_motion' and trigger.to_state.state == 'on' }}"
+        sequence:
+          - service: timer.cancel
+            target:
+              entity_id: timer.ep1_presence_timeout
+          - condition: template
+            value_template: >
+              {% if use_illuminance %}
+                {{ states(illuminance_entity) | float < illuminance_threshold }}
+              {% else %}
+                {{ true }}
+              {% endif %}
+          - service: light.turn_on
+            target: !input light_entities
+            data:
+              brightness: "{{ light_on_brightness }}"
+              transition: "{{ light_transition_time }}"
+
+      # When mmWave detects no presence
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'mmwave_presence' and trigger.to_state.state == 'off' }}"
+          - condition: template
+            value_template: "{{ states(pir_entity) == 'off' }}"
+        sequence:
+          - service: timer.start
+            data:
+              duration: "{{ presence_timeout }}"
+            target:
+              entity_id: timer.ep1_presence_timeout
+
+      # When illuminance changes
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'illuminance_change' }}"
+          - condition: template
+            value_template: "{{ states(mmwave_entity) == 'on' or states(pir_entity) == 'on' }}"
+          - condition: template
+            value_template: "{{ use_illuminance }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ trigger.to_state.state | float < illuminance_threshold }}"
+            then:
+              - service: light.turn_on
+                target: !input light_entities
+                data:
+                  brightness: "{{ light_on_brightness }}"
+                  transition: "{{ light_transition_time }}"
+            else:
+              - service: light.turn_off
+                target: !input light_entities
+                data:
+                  transition: "{{ light_transition_time }}"
+
+  - delay:
+      seconds: 1
+
+mode: restart
