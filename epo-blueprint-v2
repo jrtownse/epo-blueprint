@@ -1,0 +1,98 @@
+# Home Assistant Blueprint: Everything Presence One Control
+#
+# Description: Automates controlling entities (like lights or switches)
+# based on the presence detection of an Everything Presence One sensor.
+# Turns the target entity on when presence is detected and off after a delay
+# when presence is no longer detected.
+#
+# Author: Gemini
+# Version: 1.0
+#
+# For more details on the Everything Presence One sensor, see:
+# https://everythingsmart.io/everything-presence-one/
+#
+blueprint:
+  name: Everything Presence One - Presence Control
+  description: >-
+    Turns on a target entity (e.g., light, switch) when presence is detected
+    by an Everything Presence One sensor and turns it off after a specified delay
+    when presence is no longer detected.
+  domain: automation
+  source_url: https://github.com/your_username/your_repo/blob/main/blueprints/automation/everything_presence_one_control.yaml # Optional: Replace with your URL if you host it
+  input:
+    presence_sensor:
+      name: Everything Presence One Sensor
+      description: >-
+        Select the binary sensor entity representing presence detection
+        (e.g., binary_sensor.everything_presence_one_presence).
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: occupancy # Or 'presence' depending on how EP1 exposes it
+          # Consider adding manufacturer/model filters if known
+    target_entity:
+      name: Target Entity
+      description: Select the light, switch, or other entity to control.
+      selector:
+        entity:
+          domain:
+            - light
+            - switch
+            - fan
+            - scene # You might need 'script' or 'scene' domains depending on use case
+    no_presence_wait:
+      name: Turn-off delay
+      description: Time (in seconds) to wait before turning off the target entity after presence is no longer detected.
+      default: 120 # Default to 2 minutes
+      selector:
+        number:
+          min: 0
+          max: 3600 # Maximum 1 hour delay
+          unit_of_measurement: seconds
+          mode: slider # Or 'box'
+
+# Use 'restart' mode to ensure that if presence is re-detected before the delay expires,
+# the 'off' action is cancelled and the timer restarts when presence clears again.
+mode: restart
+
+# Define the triggers for the automation
+trigger:
+  # Trigger 1: When presence is detected
+  - platform: state
+    entity_id: !input presence_sensor
+    to: "on"
+    id: presence_detected # Optional ID for clarity in traces
+
+  # Trigger 2: When presence is no longer detected for the specified delay
+  - platform: state
+    entity_id: !input presence_sensor
+    to: "off"
+    for:
+      seconds: !input no_presence_wait
+    id: presence_cleared # Optional ID for clarity in traces
+
+# Define the actions to perform based on the trigger
+action:
+  # Use 'choose' to select actions based on which trigger fired
+  - choose:
+      # Action for Trigger 1: Presence Detected
+      - conditions:
+          - condition: trigger
+            id: presence_detected
+        sequence:
+          - service: homeassistant.turn_on
+            target:
+              entity_id: !input target_entity
+            data: {} # Add data if needed (e.g., brightness for lights)
+
+      # Action for Trigger 2: Presence Cleared after Delay
+      - conditions:
+          - condition: trigger
+            id: presence_cleared
+        sequence:
+          - service: homeassistant.turn_off
+            target:
+              entity_id: !input target_entity
+            data: {}
+    # Default action (optional, can be empty if not needed)
+    default: []
